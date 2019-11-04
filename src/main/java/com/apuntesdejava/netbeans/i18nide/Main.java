@@ -15,8 +15,11 @@
  */
 package com.apuntesdejava.netbeans.i18nide;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -28,6 +31,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.json.bind.Jsonb;
+import javax.json.bind.JsonbBuilder;
+import javax.json.bind.JsonbConfig;
 
 /**
  *
@@ -45,13 +51,27 @@ public class Main {
     private final Path netbeansDir;
     private final Path outputDir;
     private List<EntryLocalization> outputDirs;
+    private final Jsonb jsonb;
 
     private Main(String netbeansDir, String outputDir) {
         this.netbeansDir = Paths.get(netbeansDir);
         this.outputDir = Paths.get(outputDir);
+
+        JsonbConfig config = new JsonbConfig()
+                .withSerializers(new PathSerializer())
+                .withDeserializers(new PathDeserializer());
+        this.jsonb = JsonbBuilder.create(config);
+
+        loadOutputDirs();
     }
 
     private void start() {
+        if (outputDirs.isEmpty()) {
+            create();
+        }
+    }
+
+    private void create() {
         List<Path> files = searchFiles(netbeansDir);
         createStructure(files, outputDir);
         outputDirs.forEach((f) -> LOGGER.info(f.toString()));
@@ -123,7 +143,7 @@ public class Main {
                     try {
                         String bundleName = b.getName();
                         Path bundleOutputPath = Paths.get(i.outputPath.toString(), bundleName);
-                        i.bundleOutputPath = bundleOutputPath;
+                        i.setBundleOutputPath(bundleOutputPath);
                         Path bundleParent = bundleOutputPath.getParent();
                         Files.createDirectories(bundleParent);
 
@@ -140,51 +160,25 @@ public class Main {
                 LOGGER.log(Level.SEVERE, null, ex);
             }
         });
+        saveOutputDirs();
     }
 
-    static class EntryLocalization {
-
-        Path sourcePath;
-        Path outputPath;
-        private Path bundleOutputPath;
-
-        public EntryLocalization() {
+    private void loadOutputDirs() {
+        try ( InputStream is = new FileInputStream(STRUCTURE_FILENAME)) {
+            outputDirs = jsonb.fromJson(is, new ArrayList<EntryLocalization>() {
+            }.getClass().getGenericSuperclass());
+        } catch (IOException ex) {
+            LOGGER.log(Level.SEVERE, null, ex);
         }
+    }
 
-        public Path getSourcePath() {
-            return sourcePath;
+    private void saveOutputDirs() {
+        try ( OutputStream os = new FileOutputStream(STRUCTURE_FILENAME)) {
+            jsonb.toJson(outputDirs, os);
+        } catch (IOException ex) {
+            LOGGER.log(Level.SEVERE, null, ex);
         }
-
-        public void setSourcePath(Path sourcePath) {
-            this.sourcePath = sourcePath;
-        }
-
-        public Path getOutputPath() {
-            return outputPath;
-        }
-
-        public void setOutputPath(Path outputPath) {
-            this.outputPath = outputPath;
-        }
-
-        public Path getBundleOutputPath() {
-            return bundleOutputPath;
-        }
-
-        public void setBundleOutputPath(Path bundleOutputPath) {
-            this.bundleOutputPath = bundleOutputPath;
-        }
-
-        public EntryLocalization(Path sourcePath, Path outputPath) {
-            this.sourcePath = sourcePath;
-            this.outputPath = outputPath;
-        }
-
-        @Override
-        public String toString() {
-            return "EntryLocalization{" + "sourcePath=" + sourcePath + ", outputPath=" + outputPath + '}';
-        }
-
     }
     private static final String JAR = ".jar";
+    private static final String STRUCTURE_FILENAME = "structure.json";
 }

@@ -1,3 +1,4 @@
 /output/
 /target/
 **/nb*.xml
+/structure.json

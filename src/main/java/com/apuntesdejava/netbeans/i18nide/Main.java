@@ -34,6 +34,7 @@ import java.util.stream.Stream;
 import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
 import javax.json.bind.JsonbConfig;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  *
@@ -45,8 +46,30 @@ public class Main {
 
     public static void main(String[] args) {
         String netbeansDir = "c:\\opt\\netbeans-11.2", outputDir = "output";
+        String cmd = "init";
+        for (String arg : args) {
+            if (StringUtils.startsWith(arg, "--cmd=")) {
+                cmd = StringUtils.substringAfter(arg, "--cmd=");
+            } else if (StringUtils.startsWith(arg, "--netbeans=")) {
+                netbeansDir = StringUtils.substringAfter(arg, "--netbeans=");
+            } else if (StringUtils.startsWith(arg, "--help")) {
+                showHelp();
+                return;
+            }
+        }
+        Main main = new Main(netbeansDir, outputDir);
+        if (StringUtils.equalsIgnoreCase(cmd, "store")) {
+            main.store();
+        } else {
+            main.start();
+        }
+    }
 
-        new Main(netbeansDir, outputDir).start();
+    private static void showHelp() {
+        System.out.println("== NetBeans L10N Tool ==");
+        System.out.println("--cmd=[init|store]  init: Inicializa el entorno, extrae los bundle");
+        System.out.println("                   store: Guarda los bundle en el netbeans");
+        System.out.println("--netbeans={netbeans_dir}  Ruta de NetBeans");
     }
     private final Path netbeansDir;
     private final Path outputDir;
@@ -170,6 +193,7 @@ public class Main {
         } catch (IOException ex) {
             LOGGER.log(Level.SEVERE, null, ex);
         }
+        LOGGER.log(Level.INFO, "Directorios detectados:{0}", outputDirs.size());
     }
 
     private void saveOutputDirs() {
@@ -179,6 +203,11 @@ public class Main {
             LOGGER.log(Level.SEVERE, null, ex);
         }
     }
+
+    private void store() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
     private static final String JAR = ".jar";
     private static final String STRUCTURE_FILENAME = "structure.json";
+
 }

@@ -17,9 +17,12 @@ package com.apuntesdejava.netbeans.i18nide;
 
 import java.lang.reflect.Type;
 import java.nio.file.Path;
+import javax.json.JsonValue;
 import javax.json.bind.serializer.DeserializationContext;
 import javax.json.bind.serializer.JsonbDeserializer;
 import javax.json.stream.JsonParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
@@ -27,8 +30,12 @@ import javax.json.stream.JsonParser;
  */
 public class PathDeserializer implements JsonbDeserializer<Path> {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(PathDeserializer.class);
+
     @Override
     public Path deserialize(JsonParser jp, DeserializationContext dc, Type type) {
+        JsonValue value = jp.getValue();
+        LOGGER.debug("value:{}", value);
         return Path.of(jp.getString());
     }
 

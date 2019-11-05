@@ -16,6 +16,8 @@
 package com.apuntesdejava.netbeans.i18nide;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  *
@@ -25,7 +27,7 @@ public class EntryLocalization {
 
     Path sourcePath;
     Path outputPath;
-    private Path bundleOutputPath;
+    private List<Path> bundleOutputPath;
 
     public EntryLocalization() {
     }
@@ -46,12 +48,19 @@ public class EntryLocalization {
         this.outputPath = outputPath;
     }
 
-    public Path getBundleOutputPath() {
+    public List<Path> getBundleOutputPath() {
         return bundleOutputPath;
     }
 
-    public void setBundleOutputPath(Path bundleOutputPath) {
+    public void setBundleOutputPath(List<Path> bundleOutputPath) {
         this.bundleOutputPath = bundleOutputPath;
+    }
+
+    public void addBundleOutputPath(Path item) {
+        if (this.bundleOutputPath == null) {
+            this.bundleOutputPath = new ArrayList<>();
+        }
+        this.bundleOutputPath.add(item);
     }
 
     public EntryLocalization(Path sourcePath, Path outputPath) {

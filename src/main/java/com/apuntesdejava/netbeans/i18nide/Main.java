@@ -23,10 +23,13 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -40,67 +43,97 @@ import java.util.stream.Stream;
 import javax.json.bind.Jsonb;
 import javax.json.bind.JsonbBuilder;
 import javax.json.bind.JsonbConfig;
+
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- *
  * @author Diego Silva Limaco <diego.silva at apuntesdejava.com>
  */
 public class Main {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
+    // prefixes for the command line options
+    private static final String COMMAND_PREFIX = "--cmd=";
+    private static final String NETBEANS_PREFIX = "--netbeans=";
+    private static final String LANGUAGE_PREFIX = "--lang=";
+    private static final String HELP_PREFIX = "--help";
+
+    private static final String JAR = ".jar";
+    private static final String STRUCTURE_FILENAME = "structure.json";
+    private static final String BUNDLE_NAME = "Bundle.properties";
+
+    private static List<EntryLocalization> outputDirs = Collections.emptyList();
+
+    private final Configuration configuration;
+    private final Jsonb jsonb;
+
+    private final String bundleL10n;
+
+    private Main(Configuration configuration) {
+
+        this.bundleL10n = StringUtils.isNotBlank(configuration.getLang()) ? ("Bundle_" + configuration.getLang() + ".properties") : null;
+
+        JsonbConfig config = new JsonbConfig()
+                .withSerializers(new PathSerializer())
+                .withDeserializers(new PathDeserializer());
+        this.jsonb = JsonbBuilder.create(config);
+        this.configuration = configuration;
+
+        loadOutputDirs();
+    }
+
+
     public static void main(String[] args) {
-        String netbeansDir = "c:\\opt\\netbeans-11.2", outputDir = "output", lang = "es";
+        //parse arguments
+        String netbeansDir = null;
+        String outputDir = null;
+        String lang = null;
         String cmd = "init";
+
         for (String arg : args) {
-            if (StringUtils.startsWith(arg, "--cmd=")) {
-                cmd = StringUtils.substringAfter(arg, "--cmd=");
-            } else if (StringUtils.startsWith(arg, "--netbeans=")) {
-                netbeansDir = StringUtils.substringAfter(arg, "--netbeans=");
-            } else if (StringUtils.startsWith(arg, "--lang=")) {
-                lang = StringUtils.substringAfter(arg, "--lang=");
-            } else if (StringUtils.startsWith(arg, "--help")) {
+
+            if (StringUtils.startsWith(arg, COMMAND_PREFIX)) {
+                cmd = StringUtils.substringAfter(arg, COMMAND_PREFIX);
+            } else if (StringUtils.startsWith(arg, NETBEANS_PREFIX)) {
+                netbeansDir = StringUtils.substringAfter(arg, NETBEANS_PREFIX);
+            } else if (StringUtils.startsWith(arg, LANGUAGE_PREFIX)) {
+                lang = StringUtils.substringAfter(arg, LANGUAGE_PREFIX);
+            } else if (StringUtils.startsWith(arg, HELP_PREFIX)) {
                 showHelp();
                 return;
             }
         }
-        Main main = new Main(netbeansDir, lang, outputDir);
+
+
+        //create configuration
+        Configuration configuration;
+        if (netbeansDir == null && lang == null && outputDir == null) {
+            configuration = Configuration.spanishConfig();
+        } else {
+            try {
+                configuration = new Configuration.ConfigurationBuilder().outputDir(outputDir).lang(lang).netbeansDir(netbeansDir).build();
+            } catch (NoSuchFieldException e) {
+                LOGGER.error("Missing requires command line parameter", e);
+                return;
+            }
+        }
+
+        Main main = new Main(configuration);
+
         if (StringUtils.equalsIgnoreCase(cmd, "store")) {
-            main.store();
+            Storer.store(outputDirs, main.getBundleL10n());
         } else {
             main.start();
         }
     }
 
     private static void showHelp() {
-        System.out.println("== NetBeans L10N Tool ==");
-        System.out.println("--cmd=[init|store]  init: Inicializa el entorno, extrae los bundle");
-        System.out.println("                   store: Guarda los bundle en el netbeans");
-        System.out.println("--netbeans={netbeans_dir}  Ruta de NetBeans");
+        LOGGER.info("== NetBeans L10N Tool ==\n--cmd=[init|store]  init: Inicializa el entorno, extrae los bundle\n                   store: Guarda los bundle en el netbeans\n--netbeans={netbeans_dir}  Ruta de NetBeans");
     }
-    private final Path netbeansDir;
-    private final Path outputDir;
-    private List<EntryLocalization> outputDirs = Collections.emptyList();
-    private final Jsonb jsonb;
-    private final String lang;
-    private final String bundleL10n;
 
-    private Main(String netbeansDir, String lang, String outputDir) {
-        this.netbeansDir = Paths.get(netbeansDir);
-        this.outputDir = Paths.get(outputDir);
-        this.bundleL10n = StringUtils.isNotBlank(lang) ? ("Bundle_" + lang + ".properties") : null;
-
-        JsonbConfig config = new JsonbConfig()
-                .withSerializers(new PathSerializer())
-                .withDeserializers(new PathDeserializer());
-        this.jsonb = JsonbBuilder.create(config);
-        this.lang = lang;
-
-        loadOutputDirs();
-    }
 
     private void start() {
         if (outputDirs.isEmpty()) {
@@ -109,8 +142,8 @@ public class Main {
     }
 
     private void create() {
-        Collection<Path> files = searchFiles(netbeansDir);
-        createStructure(files, outputDir);
+        Collection<Path> files = searchFiles(configuration.getNetbeansDir());
+        createStructure(files, configuration.getOutputDir());
         outputDirs.forEach((f) -> LOGGER.info(f.toString()));
         if (!outputDirs.isEmpty()) {
             extractBundles();
@@ -120,10 +153,10 @@ public class Main {
 
     private void search(Set<Path> files, Path dir) {
 
-        try ( Stream<Path> walk = Files.walk(dir)) {
+        try (Stream<Path> walk = Files.walk(dir)) {
             files.addAll(walk.filter(Files::isRegularFile).filter((f) -> {
                 if (f.toString().endsWith(JAR)) {
-                    try ( JarFile jarFile = new JarFile(f.toString())) {
+                    try (JarFile jarFile = new JarFile(f.toString())) {
 
                         long cuenta = jarFile.stream().filter((e) -> !e.isDirectory() && e.getRealName().endsWith("Bundle.properties")).count();
                         return cuenta > 0;
@@ -141,7 +174,7 @@ public class Main {
     private Set<Path> searchFiles(Path netbeansDir) {
         Set<Path> dirs = null;
         Set<Path> files = new LinkedHashSet<>();
-        try ( Stream<Path> walk = Files.walk(netbeansDir)) {
+        try (Stream<Path> walk = Files.walk(netbeansDir)) {
             dirs = new LinkedHashSet<>(walk.filter(Files::isDirectory).collect(Collectors.toList()));
         } catch (IOException ex) {
             LOGGER.error(ex.getMessage(), ex);
@@ -162,7 +195,7 @@ public class Main {
             files.forEach((f) -> {
 
                 try {
-                    Path g = Paths.get(outputDir.toString(), netbeansDir.relativize(f).toString());
+                    Path g = Paths.get(outputDir.toString(), configuration.getNetbeansDir().relativize(f).toString());
                     outputDirs.add(new EntryLocalization(f, g));
                     Files.createDirectories(g);
                 } catch (IOException ex) {
@@ -178,7 +211,7 @@ public class Main {
     private void extractBundles() {
 
         outputDirs.forEach((dir) -> {
-            try ( JarFile jarFile = new JarFile(dir.sourcePath.toString())) {
+            try (JarFile jarFile = new JarFile(dir.sourcePath.toString())) {
                 List<JarEntry> bundles = jarFile.stream().filter((e)
                         -> !e.isDirectory() && (StringUtils.endsWith(e.getRealName(), BUNDLE_NAME)
                         || (StringUtils.isNotBlank(bundleL10n) && StringUtils.endsWith(e.getRealName(), bundleL10n)))
@@ -193,7 +226,7 @@ public class Main {
                         Path bundleParent = bundleOutputPath.getParent();
                         Files.createDirectories(bundleParent);
 
-                        try ( InputStream is = jarFile.getInputStream(b)) {
+                        try (InputStream is = jarFile.getInputStream(b)) {
                             byte[] buffer = is.readAllBytes();
                             String text = new String(buffer);
                             Files.writeString(bundleOutputPath, text);
@@ -210,7 +243,7 @@ public class Main {
     }
 
     private void loadOutputDirs() {
-        try ( InputStream is = new FileInputStream(STRUCTURE_FILENAME)) {
+        try (InputStream is = new FileInputStream(STRUCTURE_FILENAME)) {
             outputDirs = jsonb.fromJson(is, new ArrayList<EntryLocalization>() {
             }.getClass().getGenericSuperclass());
             LOGGER.info("Directorios detectados:{}", outputDirs.size());
@@ -220,65 +253,14 @@ public class Main {
     }
 
     private void saveOutputDirs() {
-        try ( OutputStream os = new FileOutputStream(STRUCTURE_FILENAME)) {
+        try (OutputStream os = new FileOutputStream(STRUCTURE_FILENAME)) {
             jsonb.toJson(outputDirs, os);
         } catch (IOException ex) {
             LOGGER.error(ex.getMessage(), ex);
         }
     }
 
-    private void store() {
-        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss"));
-        outputDirs.forEach((entry) -> {
-            entry.getBundleOutputPath().forEach((out) -> {
-                Path propsDir = out.getParent();
-                Path langProp = Paths.get(propsDir.toString(), bundleL10n).toAbsolutePath();
-                if (Files.exists(langProp)) {
-                    try {
-
-                        LOGGER.info("Agregando {}", langProp);
-                        Path original = entry.getSourcePath();
-                        Path target = entry.getSourcePath();
-                        Path backup = Paths.get(original.getParent().toString(), original.getFileName().toString() + '-' + date);
-                        Files.move(original, backup, REPLACE_EXISTING);
-                        Set<String> names = new LinkedHashSet<>();
-                        try ( OutputStream os = new FileOutputStream(target.toFile());  JarOutputStream jos = new JarOutputStream(os);  JarFile jarFile = new JarFile(backup.toString())) {
-                            String entryName = StringUtils.substring(StringUtils.substringAfter(langProp.toString(), entry.getOutputPath().toString()), 1);
-                            JarEntry jarEntry = new JarEntry(entryName);
-                            jos.putNextEntry(jarEntry);
-                            byte[] content = Files.readAllBytes(langProp);
-                            jos.write(content);
-                            jos.closeEntry();
-                            names.add(entryName);
-                            jarFile.stream().filter((e) -> !e.isDirectory()).forEach((e) -> {
-                                String $entryName = e.getRealName();
-                                if (!names.contains($entryName))
-                            try ( InputStream is = jarFile.getInputStream(e)) {
-                                    byte[] buffer = is.readAllBytes();
-
-                                    JarEntry $jarEntry = new JarEntry($entryName);
-                                    jos.putNextEntry($jarEntry);
-                                    jos.write(buffer);
-                                    jos.closeEntry();
-                                    names.add($entryName);
-                                } catch (IOException ex) {
-                                    LOGGER.error(ex.getMessage(), ex);
-                                }
-                            });
-
-                        } catch (IOException ex) {
-                            LOGGER.error(ex.getMessage(), ex);
-                        }
-//                    Files.move(target, original);
-                    } catch (IOException ex) {
-                        LOGGER.error(ex.getMessage(), ex);
-                    }
-                }
-            });
-        });
+    public String getBundleL10n() {
+        return this.bundleL10n;
     }
-    private static final String JAR = ".jar";
-    private static final String STRUCTURE_FILENAME = "structure.json";
-    private static final String BUNDLE_NAME = "Bundle.properties";
-
 }
